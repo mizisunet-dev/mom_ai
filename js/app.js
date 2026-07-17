@@ -8,6 +8,23 @@ const $$ = sel => [...document.querySelectorAll(sel)];
 const STORAGE_KEY = "danjang.profile.v1";
 const RECENT_KEY = "danjang.recent.v1";
 
+/* 일부 브라우저(사파리 시크릿, 샌드박스 iframe)는 localStorage 접근만으로
+   예외를 던진다 — 앱이 죽지 않도록 메모리 폴백으로 감싼다 */
+const storage = (() => {
+  try {
+    localStorage.setItem("danjang.test", "1");
+    localStorage.removeItem("danjang.test");
+    return localStorage;
+  } catch {
+    const mem = {};
+    return {
+      getItem: k => (k in mem ? mem[k] : null),
+      setItem: (k, v) => { mem[k] = String(v); },
+      removeItem: k => { delete mem[k]; },
+    };
+  }
+})();
+
 const state = {
   profile: null,      // { gender, height, weight, shoulder, chest, waist, hip, arm, inseam, fitPref }
   obStep: 1,
@@ -22,7 +39,7 @@ function showScreen(id) {
 
 /* ── 스플래시 ── */
 function initSplash() {
-  const saved = localStorage.getItem(STORAGE_KEY);
+  const saved = storage.getItem(STORAGE_KEY);
   if (saved) {
     state.profile = JSON.parse(saved);
     $("#btn-continue").classList.remove("hidden");
@@ -91,7 +108,7 @@ function initOnboarding() {
     if (!validateStep(state.obStep)) return;
     if (state.obStep < 3) { state.obStep++; syncObStep(); return; }
     state.profile = readForm();
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state.profile));
+    storage.setItem(STORAGE_KEY, JSON.stringify(state.profile));
     enterHome();
   });
 
@@ -144,11 +161,11 @@ function initHome() {
 }
 
 /* ── 최근 기록 ── */
-function loadRecent() { try { return JSON.parse(localStorage.getItem(RECENT_KEY)) || []; } catch { return []; } }
+function loadRecent() { try { return JSON.parse(storage.getItem(RECENT_KEY)) || []; } catch { return []; } }
 function saveRecent(entry) {
   const list = loadRecent().filter(r => r.productId !== entry.productId);
   list.unshift(entry);
-  localStorage.setItem(RECENT_KEY, JSON.stringify(list.slice(0, 8)));
+  storage.setItem(RECENT_KEY, JSON.stringify(list.slice(0, 8)));
 }
 const VERDICT_BADGE = {
   ok: ["잘 맞음", "st-ok"], size_mismatch: ["사이즈 주의", "st-warn"],
@@ -371,4 +388,6 @@ function init() {
   initHome();
   $("#btn-result-back").addEventListener("click", () => enterHome());
 }
-document.addEventListener("DOMContentLoaded", init);
+/* 스크립트가 문서 로드 이후에 실행되는 환경(임베드 등)에서도 초기화 보장 */
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
+else init();
