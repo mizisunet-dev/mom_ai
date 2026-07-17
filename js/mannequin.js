@@ -78,9 +78,15 @@ function armsShape(F) {
   return arm(1) + " " + arm(-1);
 }
 
-/* 상의 오버레이 — 제품 실측 폭 그대로 */
-function garmentTop(F, chart, color, accent, type) {
+/* 상의 오버레이 — 제품 실측 폭 그대로 (누락 실측은 근사값으로 보완) */
+function garmentTop(F, rawChart, color, accent, type) {
   const s = F.s, cx = F.cx;
+  const chart = {
+    shoulder: rawChart.shoulder ?? (rawChart.chestFlat ? rawChart.chestFlat * 0.86 : F.shoulderW / s + 2),
+    chestFlat: rawChart.chestFlat ?? (F.chestW / s / 2) * 2.9 / 2 + 4,
+    length: rawChart.length ?? 68,
+    sleeve: rawChart.sleeve ?? 20,
+  };
   const gShoulder = (chart.shoulder * s * 1.04) / 2;
   const gChest = girthToW(chart.chestFlat * 2, s) / 2;
   const hemY = F.shoulderY + chart.length * s;
@@ -122,9 +128,15 @@ function garmentTop(F, chart, color, accent, type) {
   </g>`;
 }
 
-/* 하의 오버레이 */
-function garmentBottom(F, chart, color, accent, type) {
+/* 하의 오버레이 (누락 실측은 근사값으로 보완) */
+function garmentBottom(F, rawChart, color, accent, type) {
   const s = F.s, cx = F.cx;
+  const chart = {
+    waistFlat: rawChart.waistFlat ?? (F.waistW / s) * 2.9 / 2 + 1,
+    hipFlat: rawChart.hipFlat ?? (F.hipW / s) * 2.9 / 2 + 3,
+    thighFlat: rawChart.thighFlat,
+    length: rawChart.length ?? 100,
+  };
   const gWaist = girthToW(chart.waistFlat * 2, s) / 2;
   const topY = F.waistY + (F.hipY - F.waistY) * 0.25;
   const hemY = Math.min(topY + chart.length * s * 0.94, F.ankleY + 6);

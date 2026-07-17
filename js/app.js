@@ -138,7 +138,7 @@ function initHome() {
 
   $("#btn-analyze").addEventListener("click", () => {
     const url = $("#input-link").value.trim();
-    if (!/^https?:\/\/.+\..+/.test(url)) { alert("올바른 상품 링크(URL)를 붙여넣어주세요."); return; }
+    if (!/^https?:\/\/\S+/.test(url)) { alert("올바른 상품 링크(URL)를 붙여넣어주세요."); return; }
     startAnalysis(url);
   });
 }
@@ -152,7 +152,7 @@ function saveRecent(entry) {
 }
 const VERDICT_BADGE = {
   ok: ["잘 맞음", "st-ok"], size_mismatch: ["사이즈 주의", "st-warn"],
-  soldout: ["품절", "st-out"], no_fit: ["안 맞음", "st-bad"],
+  soldout: ["품절", "st-out"], no_fit: ["안 맞음", "st-bad"], no_data: ["정보 부족", "st-out"],
 };
 function renderRecent() {
   const list = loadRecent();
@@ -173,28 +173,54 @@ function renderRecent() {
 }
 
 /* ── 분석 흐름 ── */
-const LOADING_STEPS = ["제품 페이지를 읽고 있어요…", "사이즈 차트를 분석하고 있어요…", "내 치수와 대조하고 있어요…", "마네킹에 입혀보는 중…"];
+const LOADING_STEPS = ["상품 페이지를 읽고 있어요…", "사이즈 실측표를 찾고 있어요…", "내 치수와 대조하고 있어요…", "마네킹에 입혀보는 중…"];
 
-function startAnalysis(url) {
+const FAIL_REASON_TEXT = {
+  no_size_chart: "페이지에서 사이즈 실측표를 찾지 못했어요",
+  fetch_failed: "상품 페이지에 접속하지 못했어요",
+  timeout: "상품 페이지 응답이 너무 느려요",
+  llm_refused: "AI가 이 페이지 분석을 건너뛰었어요",
+  server_unreachable: "분석 서버가 꺼져 있어요 (npm start로 실행하세요)",
+};
+
+async function startAnalysis(url) {
   const overlay = $("#overlay-loading");
   overlay.classList.remove("hidden");
   let i = 0;
   $("#loading-text").textContent = LOADING_STEPS[0];
   const timer = setInterval(() => {
-    i++;
-    if (i < LOADING_STEPS.length) $("#loading-text").textContent = LOADING_STEPS[i];
-  }, 550);
+    i = Math.min(i + 1, LOADING_STEPS.length - 1);
+    $("#loading-text").textContent = LOADING_STEPS[i];
+  }, 900);
 
-  setTimeout(() => {
-    clearInterval(timer);
-    overlay.classList.add("hidden");
-    const { product, matched } = matchProductByUrl(url);
-    const analysis = analyzeProduct(product, state.profile);
-    state.lastAnalysis = { url, matched, analysis };
-    saveRecent({ url, productId: product.id, name: product.name, brand: product.brand, color: product.color, verdict: analysis.verdict });
-    renderResult();
-    showScreen("screen-result");
-  }, 2300);
+  // 실제 분석 + 최소 노출시간을 함께 대기
+  const minDelay = new Promise(r => setTimeout(r, 1200));
+  let product = null, live = false, failReason = null;
+  try {
+    const res = await fetch(`/api/analyze?url=${encodeURIComponent(url)}`);
+    const data = await res.json();
+    if (data.ok) { product = data.product; live = true; }
+    else failReason = data.reason || "fetch_failed";
+  } catch {
+    failReason = "server_unreachable";
+  }
+  await minDelay;
+  clearInterval(timer);
+  overlay.classList.add("hidden");
+
+  let matched = true;
+  if (!product) {
+    // 실제 분석 실패 → 데모 카탈로그로 대체 분석 (화면에 사유 표시)
+    const m = matchProductByUrl(url);
+    product = m.product;
+    matched = m.matched;
+  }
+
+  const analysis = analyzeProduct(product, state.profile);
+  state.lastAnalysis = { url, matched, live, failReason, analysis };
+  saveRecent({ url, productId: product.id, name: product.name, brand: product.brand, color: product.color, verdict: analysis.verdict });
+  renderResult();
+  showScreen("screen-result");
 }
 
 /* ── 결과 렌더 ── */
@@ -214,6 +240,9 @@ function verdictBanner(a) {
     case "soldout":
       return { cls: "verdict-bad", icon: "✕", title: "맞는 사이즈가 품절이에요",
         body: `회원님께 맞는 ${a.best.size} 사이즈가 품절됐어요. 아래에서 비슷한 대체상품을 찾아드렸어요.` };
+    case "no_data":
+      return { cls: "verdict-warn", icon: "?", title: "실측을 비교할 수 없어요",
+        body: "사이즈표는 찾았지만 내 치수와 비교 가능한 항목이 없어요. 상품 상세의 실측을 직접 확인해주세요." };
     default:
       return { cls: "verdict-bad", icon: "✕", title: "사이즈가 안 맞습니다",
         body: `이 제품은 어떤 사이즈도 회원님 치수와 ${a.prefLabel} 취향에 맞지 않아요.${sizingNote} 아래 대체상품을 추천드려요.` };
@@ -222,15 +251,28 @@ function verdictBanner(a) {
 
 const STATUS_LABEL = {
   perfect: ["잘 맞아요", "st-ok"], snug: ["딱 붙어요", "st-warn"], loose: ["여유 있어요", "st-warn"],
-  too_small: ["작아요", "st-bad"], too_big: ["커요", "st-bad"],
+  too_small: ["작아요", "st-bad"], too_big: ["커요", "st-bad"], no_data: ["실측 없음", "st-out"],
 };
 
 function renderResult() {
-  const { url, matched, analysis: a } = state.lastAnalysis;
+  const { url, matched, live, failReason, analysis: a } = state.lastAnalysis;
   const p = a.product;
   const banner = verdictBanner(a);
   const wearSize = (a.bestInStock || a.best).size;
-  const alts = (a.verdict === "ok") ? [] : findAlternatives(p, state.profile);
+  // 대체상품: 실상품은 실제 검색 링크로, 데모 상품은 데모 카탈로그에서
+  const needAlt = a.verdict !== "ok";
+  const alts = (needAlt && !live) ? findAlternatives(p, state.profile) : [];
+
+  let sourceLine;
+  if (live) {
+    sourceLine = p.source === "live_llm"
+      ? "✓ 실제 상품 페이지 — AI가 사이즈표를 추출했어요"
+      : "✓ 실제 상품 페이지에서 사이즈 실측표를 읽었어요";
+  } else {
+    const reason = FAIL_REASON_TEXT[failReason];
+    sourceLine = (reason ? `⚠ ${reason} — ` : "") +
+      (matched ? "데모 카탈로그 상품으로 분석했어요" : "미등록 상품이라 데모 상품으로 대체 분석했어요");
+  }
 
   const sizeRows = a.results.map(r => {
     const [label, cls] = r.soldOut ? ["품절", "st-out"] : STATUS_LABEL[r.status];
@@ -244,7 +286,9 @@ function renderResult() {
     </div>`;
   }).join("");
 
-  const altHtml = alts.length ? `
+  let altHtml = "";
+  if (alts.length) {
+    altHtml = `
     <div class="alt-section">
       <h4>대신 이건 어때요?</h4>
       <p>같은 종류에서 회원님 치수·취향에 맞고 재고 있는 상품이에요.</p>
@@ -256,15 +300,34 @@ function renderResult() {
             <span class="alt-fit"><strong>${x.best.size} · ${x.best.score}점</strong><span>적합</span></span>
           </button>`).join("")}
       </div>
-    </div>` : "";
+    </div>`;
+  } else if (needAlt && live) {
+    const query = encodeURIComponent(p.name.replace(/\[[^\]]*\]/g, "").trim());
+    altHtml = `
+    <div class="alt-section">
+      <h4>대체상품을 찾아보세요</h4>
+      <p>이 상품이 맞지 않거나 품절이라면, 비슷한 상품을 실측 비교하며 골라보세요.</p>
+      <div class="alt-list">
+        <a class="alt-card" href="https://search.shopping.naver.com/search/all?query=${query}" target="_blank" rel="noopener">
+          <span class="alt-swatch" style="background:#1D6E5E"></span>
+          <span><b>네이버쇼핑에서 비슷한 상품 검색</b><small>"${p.name.slice(0, 30)}" 유사 상품 →</small></span>
+        </a>
+        <a class="alt-card" href="https://www.musinsa.com/search/goods?keyword=${query}" target="_blank" rel="noopener">
+          <span class="alt-swatch" style="background:#2B4C7E"></span>
+          <span><b>무신사에서 비슷한 상품 검색</b><small>찾은 상품 링크를 다시 붙여넣으면 판정해드려요</small></span>
+        </a>
+      </div>
+    </div>`;
+  }
 
   $("#result-body").innerHTML = `
     <div class="product-card">
       <div class="product-brand">${p.brand}</div>
       <div class="product-name">${p.name}</div>
       <div class="product-meta">${p.note}</div>
-      <div class="product-price">${p.price.toLocaleString()}원</div>
-      <div class="product-src">🔗 ${url}${matched ? "" : " · <b>미등록 쇼핑몰 — 데모 상품으로 대체 분석</b>"}</div>
+      <div class="product-price">${p.price ? p.price.toLocaleString() + "원" : "가격 정보 없음"}</div>
+      <div class="product-src">🔗 ${url}</div>
+      <div class="product-src ${live ? "src-live" : "src-demo"}">${sourceLine}</div>
     </div>
 
     <div class="verdict-banner ${banner.cls}">

@@ -40,24 +40,24 @@ function judgeSize(product, sizeName, chart, user) {
   const pref = user.fitPref;
   const details = [];
   let penalty = 0;
+  let judgedParts = 0; // 실측이 없는 항목은 건너뛴다 (실상품 사이즈표 대응)
 
   if (product.category === "top") {
-    const chestC = chart.chestFlat * 2;
-    const eChest = chestC - user.chest;
-    const dChest = deviation(eChest, EASE_RANGE.top.chest[pref], product.stretch);
-    penalty += devPenalty(dChest, 6);
-    details.push({
-      part: "가슴", ease: eChest, dir: dChest.dir,
-      text: `가슴 여유 ${fmtEase(eChest)}`,
-    });
+    if (chart.chestFlat != null) {
+      const eChest = chart.chestFlat * 2 - user.chest;
+      const dChest = deviation(eChest, EASE_RANGE.top.chest[pref], product.stretch);
+      penalty += devPenalty(dChest, 6);
+      judgedParts++;
+      details.push({ part: "가슴", ease: eChest, dir: dChest.dir, text: `가슴 여유 ${fmtEase(eChest)}` });
+    }
 
-    const eShoulder = chart.shoulder - user.shoulder;
-    const dSh = deviation(eShoulder, EASE_RANGE.top.shoulder[pref], product.stretch * 0.5);
-    penalty += devPenalty(dSh, 5);
-    details.push({
-      part: "어깨", ease: eShoulder, dir: dSh.dir,
-      text: `어깨 ${fmtEase(eShoulder)}`,
-    });
+    if (chart.shoulder != null) {
+      const eShoulder = chart.shoulder - user.shoulder;
+      const dSh = deviation(eShoulder, EASE_RANGE.top.shoulder[pref], product.stretch * 0.5);
+      penalty += devPenalty(dSh, 5);
+      judgedParts++;
+      details.push({ part: "어깨", ease: eShoulder, dir: dSh.dir, text: `어깨 ${fmtEase(eShoulder)}` });
+    }
 
     if (chart.sleeve >= 40 && user.arm) { // 긴팔만 팔길이 비교
       const eArm = chart.sleeve - user.arm;
@@ -65,17 +65,19 @@ function judgeSize(product, sizeName, chart, user) {
       else if (eArm > 8) { penalty += (eArm - 8) * 1; details.push({ part: "소매", ease: eArm, dir: "large", text: `소매가 ${(eArm).toFixed(1)}cm 김` }); }
     }
   } else {
-    const waistC = chart.waistFlat * 2;
-    const eWaist = waistC - user.waist;
-    const dW = deviation(eWaist, EASE_RANGE.bottom.waist[pref], product.stretch);
-    penalty += devPenalty(dW, 7);
-    details.push({ part: "허리", ease: eWaist, dir: dW.dir, text: `허리 여유 ${fmtEase(eWaist)}` });
+    if (chart.waistFlat != null) {
+      const eWaist = chart.waistFlat * 2 - user.waist;
+      const dW = deviation(eWaist, EASE_RANGE.bottom.waist[pref], product.stretch);
+      penalty += devPenalty(dW, 7);
+      judgedParts++;
+      details.push({ part: "허리", ease: eWaist, dir: dW.dir, text: `허리 여유 ${fmtEase(eWaist)}` });
+    }
 
-    if (chart.hipFlat < 900) { // 999 = 해당 없음(스커트 등)
-      const hipC = chart.hipFlat * 2;
-      const eHip = hipC - user.hip;
+    if (chart.hipFlat != null && chart.hipFlat < 900) { // 999 = 해당 없음(스커트 등)
+      const eHip = chart.hipFlat * 2 - user.hip;
       const dH = deviation(eHip, EASE_RANGE.bottom.hip[pref], product.stretch);
       penalty += devPenalty(dH, 5);
+      judgedParts++;
       details.push({ part: "엉덩이", ease: eHip, dir: dH.dir, text: `엉덩이 여유 ${fmtEase(eHip)}` });
     }
 
@@ -85,6 +87,14 @@ function judgeSize(product, sizeName, chart, user) {
       if (eLen > 6) details.push({ part: "기장", ease: eLen, dir: "large", text: `기장이 약 ${eLen.toFixed(0)}cm 김 (수선 고려)` });
       else if (eLen < -4) details.push({ part: "기장", ease: eLen, dir: "small", text: `기장이 약 ${Math.abs(eLen).toFixed(0)}cm 짧음` });
     }
+  }
+
+  if (judgedParts === 0) {
+    return {
+      size: sizeName, score: 0, status: "no_data",
+      details: [{ part: "-", ease: 0, dir: "fit", text: "비교 가능한 실측이 없어요" }],
+      soldOut: product.soldOut.includes(String(sizeName)),
+    };
   }
 
   const score = Math.round(clamp(100 - penalty, 0, 100));
@@ -109,8 +119,9 @@ function labelDeviation(product) {
   for (const [size, chart] of Object.entries(product.sizes)) {
     const ref = std[size];
     if (!ref) continue;
-    const actual = product.category === "top" ? chart.chestFlat * 2 : chart.waistFlat * 2;
-    diffs.push(actual - ref);
+    const flat = product.category === "top" ? chart.chestFlat : chart.waistFlat;
+    if (flat == null) continue;
+    diffs.push(flat * 2 - ref);
   }
   if (!diffs.length) return null;
   const avg = diffs.reduce((a, b) => a + b, 0) / diffs.length;
@@ -129,8 +140,9 @@ function analyzeProduct(product, user) {
   const best = [...results].sort((a, b) => b.score - a.score)[0];
   const bestInStock = [...inStock].sort((a, b) => b.score - a.score)[0] || null;
 
-  let verdict; // ok | size_mismatch | soldout | no_fit
-  if (!wearable.length) verdict = "no_fit";
+  let verdict; // ok | size_mismatch | soldout | no_fit | no_data
+  if (results.every(r => r.status === "no_data")) verdict = "no_data";
+  else if (!wearable.length) verdict = "no_fit";
   else if (!inStock.length) verdict = "soldout";
   else if (bestInStock.score >= 75) verdict = "ok";
   else verdict = "size_mismatch";
