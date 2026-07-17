@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#FDFCF8">
+<title>단장 — 나 대신 입어주는 AI</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 96 96'%3E%3Cg transform='translate(48,48)'%3E%3Cpath d='M0,-34 C14,-18 14,18 0,34 C-14,18 -14,-18 0,-34Z' fill='%231D6E5E'/%3E%3Cpath d='M-34,0 C-18,-14 18,-14 34,0 C18,14 -18,14 -34,0Z' fill='%23B23A3A' opacity='.82'/%3E%3Ccircle r='9' fill='%23D9A441'/%3E%3C/g%3E%3C/svg%3E">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- 단청 SVG 팔레트/패턴 정의 -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <pattern id="dancheong-band" width="72" height="24" patternUnits="userSpaceOnUse">
+      <rect width="72" height="24" fill="#FDFCF8"/>
+      <!-- 연화(연꽃) 모티프 -->
+      <g transform="translate(18,12)">
+        <path d="M0,-8 C4,-4 4,4 0,8 C-4,4 -4,-4 0,-8Z" fill="#1D6E5E"/>
+        <path d="M-8,0 C-4,-4 4,-4 8,0 C4,4 -4,4 -8,0Z" fill="#B23A3A" opacity=".85"/>
+        <circle r="2.4" fill="#D9A441"/>
+      </g>
+      <g transform="translate(54,12)">
+        <path d="M0,-8 C4,-4 4,4 0,8 C-4,4 -4,-4 0,-8Z" fill="#2B4C7E"/>
+        <path d="M-8,0 C-4,-4 4,-4 8,0 C4,4 -4,4 -8,0Z" fill="#1D6E5E" opacity=".8"/>
+        <circle r="2.4" fill="#B23A3A"/>
+      </g>
+      <circle cx="36" cy="12" r="2" fill="#D9A441"/>
+      <circle cx="0" cy="12" r="2" fill="#D9A441"/>
+    </pattern>
+  </defs>
+</svg>
+
+<div id="app">
+
+  <!-- ══════════ 화면 1 : 스플래시 ══════════ -->
+  <section class="screen active" id="screen-splash">
+    <div class="dancheong-strip"></div>
+    <div class="splash-body">
+      <div class="splash-mark">
+        <svg viewBox="0 0 96 96" class="lotus-mark" aria-hidden="true">
+          <g transform="translate(48,48)">
+            <path d="M0,-34 C14,-18 14,18 0,34 C-14,18 -14,-18 0,-34Z" fill="#1D6E5E"/>
+            <path d="M-34,0 C-18,-14 18,-14 34,0 C18,14 -18,14 -34,0Z" fill="#B23A3A" opacity=".82"/>
+            <path d="M-24,-24 C-8,-16 16,8 24,24 C8,16 -16,-8 -24,-24Z" fill="#2B4C7E" opacity=".55"/>
+            <circle r="9" fill="#D9A441"/>
+            <circle r="4" fill="#FDFCF8"/>
+          </g>
+        </svg>
+      </div>
+      <h1 class="splash-title">단장<span class="hanja">丹粧</span></h1>
+      <p class="splash-sub">나 대신 입어주는 AI 피팅룸</p>
+      <button class="btn btn-primary" id="btn-start">시작하기</button>
+      <button class="btn btn-ghost hidden" id="btn-continue">이어서 사용하기</button>
+    </div>
+    <div class="dancheong-strip flip"></div>
+  </section>
+
+  <!-- ══════════ 화면 2 : 온보딩(신체 사이즈 + 취향) ══════════ -->
+  <section class="screen" id="screen-onboarding">
+    <header class="topbar">
+      <button class="icon-btn hidden" id="btn-ob-back" aria-label="뒤로">←</button>
+      <div class="topbar-title">내 정보 입력</div>
+      <div class="step-dots"><span class="dot active"></span><span class="dot"></span><span class="dot"></span></div>
+    </header>
+
+    <form id="form-body" novalidate>
+      <!-- STEP 1 : 기본 -->
+      <div class="ob-step active" data-step="1">
+        <h2 class="ob-h">기본 정보를<br>알려주세요</h2>
+        <p class="ob-p">정확할수록 마네킹이 나와 닮아져요.</p>
+        <div class="field-grid">
+          <label class="field">
+            <span class="field-label">성별</span>
+            <div class="seg" data-name="gender">
+              <button type="button" data-val="female" class="seg-btn active">여성</button>
+              <button type="button" data-val="male" class="seg-btn">남성</button>
+            </div>
+          </label>
+          <label class="field">
+            <span class="field-label">키 <em>cm</em></span>
+            <input type="number" name="height" inputmode="decimal" placeholder="163" min="120" max="220" required>
+          </label>
+          <label class="field">
+            <span class="field-label">몸무게 <em>kg</em></span>
+            <input type="number" name="weight" inputmode="decimal" placeholder="54" min="30" max="200" required>
+          </label>
+        </div>
+      </div>
+
+      <!-- STEP 2 : 상세 치수 -->
+      <div class="ob-step" data-step="2">
+        <h2 class="ob-h">상세 치수를<br>입력해주세요</h2>
+        <p class="ob-p">줄자로 잰 실측 둘레 기준이에요. 모르면 <button type="button" class="link-btn" id="btn-estimate">키·몸무게로 추정</button>할 수 있어요.</p>
+        <div class="field-grid two">
+          <label class="field"><span class="field-label">어깨너비 <em>cm</em></span><input type="number" name="shoulder" inputmode="decimal" placeholder="39" min="30" max="65" required></label>
+          <label class="field"><span class="field-label">가슴둘레 <em>cm</em></span><input type="number" name="chest" inputmode="decimal" placeholder="86" min="60" max="150" required></label>
+          <label class="field"><span class="field-label">허리둘레 <em>cm</em></span><input type="number" name="waist" inputmode="decimal" placeholder="68" min="50" max="140" required></label>
+          <label class="field"><span class="field-label">엉덩이둘레 <em>cm</em></span><input type="number" name="hip" inputmode="decimal" placeholder="92" min="60" max="150" required></label>
+          <label class="field"><span class="field-label">팔 길이 <em>cm</em></span><input type="number" name="arm" inputmode="decimal" placeholder="56" min="40" max="80"></label>
+          <label class="field"><span class="field-label">다리 안기장 <em>cm</em></span><input type="number" name="inseam" inputmode="decimal" placeholder="74" min="50" max="100"></label>
+        </div>
+      </div>
+
+      <!-- STEP 3 : 핏 취향 -->
+      <div class="ob-step" data-step="3">
+        <h2 class="ob-h">어떤 핏을<br>좋아하세요?</h2>
+        <p class="ob-p">사이즈 판정 기준이 취향에 맞춰져요.</p>
+        <div class="fit-cards" data-name="fitPref">
+          <button type="button" class="fit-card" data-val="tight">
+            <svg viewBox="0 0 60 72" aria-hidden="true"><path d="M18 8 L42 8 L46 20 L42 24 L42 62 L18 62 L18 24 L14 20 Z" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/></svg>
+            <strong>타이트</strong><span>몸에 붙는 슬림핏</span>
+          </button>
+          <button type="button" class="fit-card active" data-val="regular">
+            <svg viewBox="0 0 60 72" aria-hidden="true"><path d="M15 8 L45 8 L51 22 L45 26 L45 62 L15 62 L15 26 L9 22 Z" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/></svg>
+            <strong>정사이즈</strong><span>표준적인 레귤러핏</span>
+          </button>
+          <button type="button" class="fit-card" data-val="boxy">
+            <svg viewBox="0 0 60 72" aria-hidden="true"><path d="M11 8 L49 8 L57 26 L49 30 L49 62 L11 62 L11 30 L3 26 Z" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/></svg>
+            <strong>박시</strong><span>여유있는 오버핏</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="ob-footer">
+        <button type="button" class="btn btn-primary" id="btn-ob-next">다음</button>
+      </div>
+    </form>
+  </section>
+
+  <!-- ══════════ 화면 3 : 홈(마네킹 + 링크 입력) ══════════ -->
+  <section class="screen" id="screen-home">
+    <header class="topbar">
+      <div class="brand-mini">단장<span class="hanja">丹粧</span></div>
+      <button class="icon-btn" id="btn-profile" aria-label="내 정보 수정">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-6.5 8-6.5s8 2.5 8 6.5"/></svg>
+      </button>
+    </header>
+
+    <div class="mannequin-stage">
+      <div class="dancheong-halo" aria-hidden="true"></div>
+      <div id="mannequin-home" class="mannequin-holder"></div>
+      <p class="stage-caption" id="home-caption">내 치수로 만든 마네킹이에요</p>
+    </div>
+
+    <div class="link-panel">
+      <label class="link-label" for="input-link">사고 싶은 옷, 링크만 붙여넣으세요</label>
+      <div class="link-row">
+        <input type="url" id="input-link" placeholder="https://shop.example.com/products/…" inputmode="url" autocomplete="off">
+        <button class="btn btn-primary btn-fit" id="btn-analyze">입어보기</button>
+      </div>
+      <p class="link-hint">ver1은 데모 카탈로그 기반으로 분석해요. <button class="link-btn" id="btn-demo-links">체험용 링크 보기</button></p>
+      <div class="demo-links hidden" id="demo-links"></div>
+    </div>
+
+    <div class="recent" id="recent-wrap">
+      <h3 class="recent-h">최근 입어본 옷</h3>
+      <div class="recent-list" id="recent-list"></div>
+    </div>
+  </section>
+
+  <!-- ══════════ 화면 4 : 분석 결과 ══════════ -->
+  <section class="screen" id="screen-result">
+    <header class="topbar">
+      <button class="icon-btn" id="btn-result-back" aria-label="뒤로">←</button>
+      <div class="topbar-title">피팅 결과</div>
+      <span style="width:38px"></span>
+    </header>
+
+    <div class="result-scroll" id="result-body"><!-- JS 렌더 --></div>
+  </section>
+
+  <!-- 분석 로딩 오버레이 -->
+  <div class="overlay hidden" id="overlay-loading">
+    <div class="loading-card">
+      <div class="loading-lotus">
+        <svg viewBox="0 0 96 96"><g transform="translate(48,48)">
+          <path d="M0,-30 C12,-16 12,16 0,30 C-12,16 -12,-16 0,-30Z" fill="#1D6E5E"/>
+          <path d="M-30,0 C-16,-12 16,-12 30,0 C16,12 -16,12 -30,0Z" fill="#B23A3A" opacity=".8"/>
+          <circle r="7" fill="#D9A441"/>
+        </g></svg>
+      </div>
+      <p id="loading-text">제품 정보를 읽고 있어요…</p>
+    </div>
+  </div>
+
+</div>
+
+<script src="js/data.js"></script>
+<script src="js/fit.js"></script>
+<script src="js/mannequin.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
