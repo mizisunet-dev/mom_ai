@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="512" viewBox="0 0 900 512" role="img" aria-label="Terminal showing the repo-polish audit reporting 7 blocking and 7 advisory findings on a sample repository">
+  <rect width="900" height="512" rx="10" fill="#11151c"/>
+  <g transform="translate(24,22)">
+    <circle cx="6" cy="6" r="6" fill="#ff5f57"/>
+    <circle cx="26" cy="6" r="6" fill="#febc2e"/>
+    <circle cx="46" cy="6" r="6" fill="#28c840"/>
+    <text x="380" y="10" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" fill="#6e7681">repo-polish</text>
+  </g>
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#c9d1d9">
+    <text x="24" y="72"><tspan fill="#7ee787">$</tspan> python audit_repo.py ~/code/habit-tracker</text>
+
+    <text x="24" y="104" fill="#58a6ff" font-weight="bold"># Repo audit — habit-tracker</text>
+    <text x="24" y="124" fill="#8b949e">Stack: JavaScript / TypeScript  ·  Commits: 1  ·  README: 16 words</text>
+    <text x="24" y="148" font-weight="bold">2/16 checks passed — <tspan fill="#ff7b72">7 blocking</tspan>, <tspan fill="#d29922">7 advisory</tspan>.</text>
+
+    <text x="24" y="184" fill="#ff7b72" font-weight="bold">## Blocking</text>
+    <text x="24" y="206"><tspan fill="#ff7b72">[ ]</tspan> README says enough to be useful <tspan fill="#8b949e">— 16 words of prose</tspan></text>
+    <text x="24" y="226"><tspan fill="#ff7b72">[ ]</tspan> README has no leftover placeholder text <tspan fill="#8b949e">— TODO/TBD/FIXME marker</tspan></text>
+    <text x="24" y="246"><tspan fill="#ff7b72">[ ]</tspan> README links resolve <tspan fill="#8b949e">— broken: docs/setup.md</tspan></text>
+    <text x="24" y="266"><tspan fill="#ff7b72">[ ]</tspan> LICENSE present <tspan fill="#8b949e">— no LICENSE file</tspan></text>
+    <text x="24" y="286"><tspan fill="#ff7b72">[ ]</tspan> .gitignore present <tspan fill="#8b949e">— no .gitignore</tspan></text>
+    <text x="24" y="306"><tspan fill="#ff7b72">[ ]</tspan> No credential-shaped files committed <tspan fill="#8b949e">— .env</tspan></text>
+    <text x="44" y="326" fill="#8b949e">↳ rotate anything it contained; deleting it does not erase history</text>
+    <text x="24" y="346"><tspan fill="#ff7b72">[ ]</tspan> No dependency directories committed <tspan fill="#8b949e">— node_modules/</tspan></text>
+
+    <text x="24" y="382" fill="#d29922" font-weight="bold">## Worth fixing</text>
+    <text x="24" y="404"><tspan fill="#d29922">[ ]</tspan> README covers the core sections <tspan fill="#8b949e">— missing: install, usage, license</tspan></text>
+    <text x="24" y="424"><tspan fill="#d29922">[ ]</tspan> README shows the project <tspan fill="#8b949e">— no screenshot or sample output</tspan></text>
+    <text x="24" y="444"><tspan fill="#d29922">[ ]</tspan> Continuous integration configured <tspan fill="#8b949e">— no CI workflow</tspan></text>
+    <text x="24" y="464"><tspan fill="#d29922">[ ]</tspan> Commit history tells a story <tspan fill="#8b949e">— a single commit</tspan></text>
+    <text x="24" y="490" fill="#6e7681">…and 3 more advisory findings</text>
+  </g>
+</svg>
