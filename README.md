@@ -81,3 +81,20 @@ lib/extract.js      휴리스틱 추출기 (JSON-LD·사이즈표·품절)
 lib/llm-extract.js  Claude 구조화 추출 폴백
 test/mock-shop.js   테스트용 목 쇼핑몰
 ```
+
+---
+
+## 함께 들어있는 도구
+
+### 논술 시간표 — 겹치지 않는 수시 6장 짜기
+
+수시 6장을 논술로 채울 때, 시험 시간 중복뿐 아니라 **고사장 간 이동시간과 입실 마감까지**
+계산해 실제로 응시 가능한 조합만 남기는 도구입니다. Python 3만 있으면 됩니다.
+
+```bash
+python3 .claude/skills/nonsul-timetable/scripts/solve.py --sample
+```
+
+- 사용법: [`.claude/skills/nonsul-timetable/README.md`](.claude/skills/nonsul-timetable/README.md)
+- 인쇄용 설명서: `.claude/skills/nonsul-timetable/논술시간표-사용설명서.pdf`
+- Claude Code 스킬로도 동작합니다 (`SKILL.md`). MIT 라이선스 — 필요한 분께 나눠 주세요.

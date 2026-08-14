@@ -2,35 +2,49 @@
 
 두 아이는 트랙이 다르므로 파일도 분리합니다.
 
-| 파일 | 대상 | 용도 |
+| 파일 | 대상 | 내용 |
 |---|---|---|
-| `2027-논술후보.csv` | 첫째 (재수생) | 논술 후보 대학 — 채워서 충돌 검사에 사용 |
-| `2028-영화과-전형지도.md` | 둘째 (고2) | 영화·영상 관련 학과 전형 유형 비교표 (작성 예정) |
+| `2027-논술후보.csv` | 첫째 (재수생) | 논술 후보 10개 — 업로드한 엑셀에서 정리 |
+| `travel-seoul.csv` | 첫째 | 고사장 간 실제 이동시간 (지도 앱 값으로 갱신할 것) |
+| `2027-6장-분석결과.txt` | 첫째 | 충돌 분석 + 추천 조합 전체 출력 |
+| `2027-논술일정.ics` | 첫째 | 1순위 조합 캘린더 파일 (입실 마감 기준) |
+| `2028-영화과-전형지도.md` | 둘째 (고2) | 영화·영상 학과 전형 유형 비교표 (작성 예정) |
 
-## 논술 시간표 돌리기
-
-```bash
-python3 .claude/skills/nonsul-timetable/scripts/solve.py mom-mode/2027-논술후보.csv --top 5
-```
-
-캘린더에 넣기:
+## 다시 돌리기
 
 ```bash
-python3 .claude/skills/nonsul-timetable/scripts/solve.py mom-mode/2027-논술후보.csv --ics mom-mode/2027-논술.ics
+# 전체 조합
+python3 .claude/skills/nonsul-timetable/scripts/solve.py \
+    mom-mode/2027-논술후보.csv --travel mom-mode/travel-seoul.csv --top 5
+
+# 경희대·한양대는 무조건 넣는 조건
+python3 .claude/skills/nonsul-timetable/scripts/solve.py \
+    mom-mode/2027-논술후보.csv --travel mom-mode/travel-seoul.csv --must K5,K8 --top 3
+
+# 캘린더 파일 만들기
+python3 .claude/skills/nonsul-timetable/scripts/solve.py \
+    mom-mode/2027-논술후보.csv --travel mom-mode/travel-seoul.csv \
+    --must K5,K8 --ics mom-mode/2027-논술일정.ics
 ```
 
-형식이 헷갈리면 샘플부터 봅니다:
+사용법 전체는 `.claude/skills/nonsul-timetable/README.md` 또는 같은 폴더의
+`논술시간표-사용설명서.pdf`.
 
-```bash
-python3 .claude/skills/nonsul-timetable/scripts/solve.py --sample
-```
+## 지금 확인해야 할 것 (원서접수 전)
 
-자세한 사용법과 열 설명은 `.claude/skills/nonsul-timetable/SKILL.md`.
+`2027-논술후보.csv` 의 아래 칸들은 **추정치**입니다. 모집요강으로 확정하면 결과가 달라질 수 있습니다.
+
+1. **경희대 입실 마감** — 이 한 칸이 조합을 가릅니다.
+   고려대(11/22 14:20 종료)와 같이 보려면 경희대에 **14:45까지 도착**할 수 있어야 합니다.
+   경희대 입실 마감이 14:45보다 이르면 고려대와 병행 불가입니다.
+2. **한국외대 국제통상학과(K7) 고사장 위치** — 글로벌캠퍼스(용인)인지 서울인지.
+   어느 쪽이든 같은 날 한양대(K8)와는 병행이 안 되지만, 이동 계획이 달라집니다.
+3. **서강대 수능최저** — 업로드 파일에 없어 비워 뒀습니다.
+4. **`최저충족` 열 전체** — 지금 전부 `?` 입니다. 모의고사 성적으로 `Y`/`N` 을 넣어야
+   "실질 몇 장인지"가 나옵니다.
 
 ## 날짜를 채울 때
 
 **출처는 각 대학 입학처의 최종 모집요강 PDF뿐입니다.**
 입시 커뮤니티·블로그 요약본에는 변경 전 일정이 섞여 있습니다.
 확인한 날짜는 `메모` 열에 "8/14 입학처 확인"처럼 적어 두면 나중에 재확인이 쉽습니다.
-
-`권역` 열을 비우면 이동시간을 계산할 수 없어 보수적인 기본값(120분)이 적용됩니다. 꼭 채우세요.

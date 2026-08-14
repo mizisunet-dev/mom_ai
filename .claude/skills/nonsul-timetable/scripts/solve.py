@@ -8,14 +8,16 @@
 
 핵심 규칙
   1) 같은 날 시험 시간이 겹치면 충돌.
-  2) 겹치지 않아도 [앞 시험 종료 → 이동시간 → 입실여유] 가 안 되면 충돌.
+  2) 겹치지 않아도 [앞 시험 종료 → 이동 → 뒤 시험 입실 마감] 이 안 되면 충돌.
+     입실 마감은 CSV의 `입실` 열을 쓰고, 비어 있으면 (시작시각 - --buffer) 로 본다.
   3) 수시 지원 횟수(기본 6) 이내에서 선호도 합이 최대인 조합을 찾는다.
   4) 수능최저 미충족 예상(N)은 기본 제외 (--allow-miss 로 포함).
 
 사용:
   python3 solve.py candidates.csv
-  python3 solve.py candidates.csv --top 5 --slots 6 --buffer 40 --ics plan.ics
-  python3 solve.py --sample            # 동봉 샘플로 시연
+  python3 solve.py candidates.csv --top 5 --travel travel.csv --ics plan.ics
+  python3 solve.py candidates.csv --must C5,C8      # 반드시 넣을 대학 고정
+  python3 solve.py --sample                          # 동봉 샘플로 시연
 """
 
 import argparse
@@ -23,7 +25,7 @@ import csv
 import itertools
 import os
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -69,6 +71,7 @@ GROUP_TRAVEL = {
 }
 SAME_ZONE_TRAVEL = 40      # 같은 권역 문자열이 완전히 동일할 때
 UNKNOWN_TRAVEL = 120       # 그룹을 못 알아본 경우 보수적으로
+TIGHT_SLACK = 20           # 남는 여유가 이 값 미만이면 "빠듯" 경고
 
 KOR_DOW = "월화수목금토일"
 
@@ -107,6 +110,7 @@ class Exam:
     track: str
     start: datetime
     end: datetime
+    entry: object       # datetime | None — 입실 마감
     site: str
     zone: str
     min_req: str        # 수능최저 유무 Y/N
@@ -120,6 +124,10 @@ class Exam:
 
     def label(self):
         return f"{self.univ} {self.dept}".strip()
+
+    def deadline(self, buffer_min: int):
+        """이 시험을 보려면 늦어도 언제까지 고사장에 도착해야 하는가."""
+        return self.entry or (self.start - timedelta(minutes=buffer_min))
 
     def when(self):
         return f"{self.start:%m/%d}({kdow(self.start)}) {self.start:%H:%M}~{self.end:%H:%M}"
@@ -144,12 +152,16 @@ def load_candidates(path: str, default_minutes: int):
                 start = parse_hhmm(r["날짜"], r["시작"])
                 end = parse_hhmm(r["날짜"], r["종료"]) if r.get("종료") \
                     else start + timedelta(minutes=default_minutes)
+                entry = parse_hhmm(r["날짜"], r["입실"]) if r.get("입실") else None
             except ValueError as e:
                 errors.append(f"  {i}행 {r.get('대학')}: 날짜/시간 형식 오류 ({e})")
                 continue
             if end <= start:
                 errors.append(f"  {i}행 {r.get('대학')}: 종료가 시작보다 빠름")
                 continue
+            if entry and entry > start:
+                errors.append(f"  {i}행 {r.get('대학')}: 입실 마감이 시작보다 늦음 — 무시함")
+                entry = None
             try:
                 pref = float(r.get("선호도") or 3)
             except ValueError:
@@ -157,7 +169,7 @@ def load_candidates(path: str, default_minutes: int):
             rows.append(Exam(
                 id=r.get("id") or f"C{i-1}",
                 univ=r["대학"], dept=r.get("모집단위", ""), track=r.get("전형", ""),
-                start=start, end=end,
+                start=start, end=end, entry=entry,
                 site=r.get("고사장", ""), zone=r.get("권역", ""),
                 min_req=(r.get("수능최저") or "").upper(),
                 min_ok=(r.get("최저충족") or "?").upper(),
@@ -187,8 +199,13 @@ class Conflict:
     b: Exam
     kind: str           # "overlap" | "travel"
     detail: str
-    need: int = 0
-    have: int = 0
+
+
+def slack_between(first: Exam, second: Exam, buffer_min: int, overrides: dict):
+    """앞 시험 종료 후 뒤 시험 입실 마감까지, 이동시간을 빼고 남는 여유(분)."""
+    have = int((second.deadline(buffer_min) - first.end).total_seconds() // 60)
+    move = travel_minutes(first.zone, second.zone, overrides)
+    return have, move, have - move
 
 
 def pair_conflict(a: Exam, b: Exam, buffer_min: int, overrides: dict):
@@ -197,29 +214,37 @@ def pair_conflict(a: Exam, b: Exam, buffer_min: int, overrides: dict):
         return None
     first, second = (a, b) if a.start <= b.start else (b, a)
     if second.start < first.end:
-        return Conflict(first, second, "overlap",
-                        f"시험 시간이 {int((first.end - second.start).total_seconds() // 60)}분 겹칩니다")
-    gap = int((second.start - first.end).total_seconds() // 60)
-    move = travel_minutes(first.zone, second.zone, overrides)
-    need = move + buffer_min
-    if gap < need:
+        mins = int((first.end - second.start).total_seconds() // 60)
+        return Conflict(first, second, "overlap", f"시험 시간이 {mins}분 겹칩니다")
+    have, move, slack = slack_between(first, second, buffer_min, overrides)
+    if slack < 0:
+        src = "입실 마감" if second.entry else f"시작 {buffer_min}분 전"
         return Conflict(first, second, "travel",
-                        f"여유 {gap}분 < 필요 {need}분(이동 {move}분 + 입실여유 {buffer_min}분)",
-                        need=need, have=gap)
+                        f"{first.end:%H:%M} 종료 → {second.deadline(buffer_min):%H:%M} "
+                        f"({second.univ} {src})까지 {have}분뿐인데 이동에 {move}분 필요 "
+                        f"— {abs(slack)}분 부족")
     return None
 
 
-def pair_warning(a: Exam, b: Exam, overrides: dict):
-    """충돌은 아니지만 알려줘야 할 것 (연속일 원거리 이동 등)."""
+def pair_warning(a: Exam, b: Exam, buffer_min: int, overrides: dict):
+    """충돌은 아니지만 알려줘야 할 것."""
     if a.day == b.day:
+        first, second = (a, b) if a.start <= b.start else (b, a)
+        if second.start < first.end:
+            return None
+        have, move, slack = slack_between(first, second, buffer_min, overrides)
+        if 0 <= slack < TIGHT_SLACK:
+            return (f"[빠듯] {first.univ} → {second.univ} ({first.start:%m/%d}) "
+                    f"여유 {have}분 · 이동 {move}분 · 남는 시간 {slack}분 "
+                    f"— 지연 한 번이면 실격")
         return None
     first, second = (a, b) if a.start <= b.start else (b, a)
     if (second.day - first.day).days != 1:
         return None
     move = travel_minutes(first.zone, second.zone, overrides)
     if move >= 150:
-        return (f"{first.univ}({first.start:%m/%d}) → {second.univ}({second.start:%m/%d}) "
-                f"연속일 장거리 이동 추정 {move}분 · 전날 숙박 검토")
+        return (f"[연속일] {first.univ}({first.start:%m/%d}) → {second.univ}({second.start:%m/%d}) "
+                f"장거리 이동 추정 {move}분 · 전날 숙박 검토")
     return None
 
 
@@ -237,47 +262,45 @@ def build_matrix(cands, buffer_min, overrides):
 
 
 # ── 조합 탐색 ──────────────────────────────────────────────────────────────
-def search(cands, ok, slots, max_per_day, max_per_univ, overrides, top):
+def search(cands, ok, slots, max_per_day, max_per_univ, overrides, top, must_idx):
     n = len(cands)
-    idx = sorted(range(n), key=lambda i: (-cands[i].pref, cands[i].start))
+    rest = sorted((i for i in range(n) if i not in must_idx),
+                  key=lambda i: (-cands[i].pref, cands[i].start))
     results = []
-    best_prefix = [0.0] * (n + 1)
-    for k in range(n - 1, -1, -1):          # 남은 후보로 얻을 수 있는 선호도 상한
-        best_prefix[k] = cands[idx[k]].pref + best_prefix[k + 1]
-
-    def score_of(combo):
-        return sum(cands[i].pref for i in combo)
 
     def dfs(pos, combo):
-        if combo:
+        if len(combo) >= max(1, len(must_idx)):
             results.append(tuple(combo))
-        if len(combo) == slots or pos >= n:
+        if len(combo) == slots or pos >= len(rest):
             return
-        for p in range(pos, n):
-            i = idx[p]
+        for p in range(pos, len(rest)):
+            i = rest[p]
             if any(not ok[i][j] for j in combo):
                 continue
-            if max_per_day:
-                same_day = sum(1 for j in combo if cands[j].day == cands[i].day)
-                if same_day >= max_per_day:
-                    continue
-            if max_per_univ:
-                same_u = sum(1 for j in combo if cands[j].univ == cands[i].univ)
-                if same_u >= max_per_univ:
-                    continue
+            if max_per_day and sum(1 for j in combo
+                                   if cands[j].day == cands[i].day) >= max_per_day:
+                continue
+            if max_per_univ and sum(1 for j in combo
+                                    if cands[j].univ == cands[i].univ) >= max_per_univ:
+                continue
             combo.append(i)
             dfs(p + 1, combo)
             combo.pop()
 
-    dfs(0, [])
+    dfs(0, list(must_idx))
 
     def rank_key(combo):
         same_day = sum(1 for a, b in itertools.combinations(combo, 2)
                        if cands[a].day == cands[b].day)
-        move = sum(travel_minutes(cands[a].zone, cands[b].zone, overrides)
-                   for a, b in itertools.combinations(combo, 2)
-                   if cands[a].day == cands[b].day)
-        return (-len(combo), -score_of(combo), same_day, move)
+        tight = 0
+        for a, b in itertools.combinations(combo, 2):
+            if cands[a].day != cands[b].day:
+                continue
+            f, s = sorted((cands[a], cands[b]), key=lambda e: e.start)
+            if slack_between(f, s, 40, overrides)[2] < TIGHT_SLACK:
+                tight += 1
+        score = sum(cands[i].pref for i in combo)
+        return (-len(combo), tight, -score, same_day)
 
     seen, uniq = set(), []
     for c in sorted(results, key=rank_key):
@@ -292,10 +315,11 @@ def search(cands, ok, slots, max_per_day, max_per_univ, overrides, top):
 
 
 # ── 출력 ──────────────────────────────────────────────────────────────────
-def print_report(cands, excluded, ok, conflicts, combos, overrides, slots, buffer_min):
-    print("=" * 68)
-    print(f" 논술 시간표 충돌 분석 — 후보 {len(cands)}개 / 지원 슬롯 {slots}장 / 입실여유 {buffer_min}분")
-    print("=" * 68)
+def print_report(cands, excluded, conflicts, combos, overrides, slots, buffer_min, must_idx):
+    print("=" * 72)
+    print(f" 논술 시간표 충돌 분석 — 후보 {len(cands)}개 / 지원 슬롯 {slots}장 / "
+          f"기본 입실여유 {buffer_min}분")
+    print("=" * 72)
 
     if excluded:
         print("\n[제외됨]")
@@ -304,32 +328,34 @@ def print_report(cands, excluded, ok, conflicts, combos, overrides, slots, buffe
 
     print("\n[후보 목록]")
     for i, e in enumerate(cands):
-        flag = "" if e.min_ok != "?" or e.min_req != "Y" else "  ※최저 충족여부 미확인"
-        print(f"  {i+1:2d}. {e.when()}  {e.label():<22} {e.track:<10} "
-              f"{e.zone:<8} 선호{e.pref:g}{flag}")
+        star = "★" if i in must_idx else " "
+        entry = f"입실 {e.entry:%H:%M}" if e.entry else f"입실 {e.deadline(buffer_min):%H:%M}(추정)"
+        warn = "  ※최저 확인필요" if (e.min_req == "Y" and e.min_ok == "?") else ""
+        print(f" {star}{i+1:2d}. {e.when()}  {e.label():<26} {e.zone:<10} "
+              f"{entry:<14} 선호{e.pref:g}{warn}")
+    if must_idx:
+        print("     ★ = --must 로 고정한 필수 지원 대학")
 
-    print("\n[충돌 쌍]")
+    print("\n[충돌 — 동시 지원 불가]")
     if not conflicts:
         print("  없음 — 모든 후보를 자유롭게 조합할 수 있습니다.")
     for (i, j), c in sorted(conflicts.items(), key=lambda kv: kv[1].a.start):
-        mark = "✕겹침" if c.kind == "overlap" else "△이동"
-        print(f"  {mark}  {c.a.label()} ({c.a.start:%m/%d %H:%M}~{c.a.end:%H:%M})"
-              f"  ↔  {c.b.label()} ({c.b.start:%H:%M}~{c.b.end:%H:%M})")
-        print(f"        {c.detail}")
+        mark = "✕ 시간겹침" if c.kind == "overlap" else "✕ 이동불가"
+        print(f"  {mark}  {c.a.label()}  ↔  {c.b.label()}   ({c.a.start:%m/%d})")
+        print(f"              {c.detail}")
 
-    warns = []
-    for a, b in itertools.combinations(cands, 2):
-        w = pair_warning(a, b, overrides)
-        if w:
-            warns.append(w)
+    warns = sorted({w for a, b in itertools.combinations(cands, 2)
+                    if (w := pair_warning(a, b, buffer_min, overrides))})
     if warns:
-        print("\n[주의(충돌 아님)]")
-        for w in sorted(set(warns)):
+        print("\n[주의 — 가능하지만 위험]")
+        for w in warns:
             print(f"  · {w}")
 
-    print("\n" + "=" * 68)
+    print("\n" + "=" * 72)
     print(f" 추천 조합 Top {len(combos)}")
-    print("=" * 68)
+    print("=" * 72)
+    if not combos:
+        print("\n  조건을 만족하는 조합이 없습니다. --must 를 줄이거나 후보를 늘려 보세요.")
     for rank, combo in enumerate(combos, 1):
         total = sum(cands[i].pref for i in combo)
         print(f"\n── 조합 {rank} — {len(combo)}장 / 선호도 합 {total:g}")
@@ -341,13 +367,16 @@ def print_report(cands, excluded, ok, conflicts, combos, overrides, slots, buffe
             print(f"   {day:%Y-%m-%d}({KOR_DOW[day.weekday()]})")
             prev = None
             for e in items:
-                print(f"     {e.start:%H:%M}~{e.end:%H:%M}  {e.label()}  "
-                      f"[{e.track}] {e.site or e.zone}")
+                ent = f"입실 {e.entry:%H:%M}" if e.entry else f"입실 {e.deadline(buffer_min):%H:%M}(추정)"
+                print(f"     {e.start:%H:%M}~{e.end:%H:%M}  {e.label():<26} "
+                      f"{ent}  {e.site or e.zone}")
                 if prev:
-                    gap = int((e.start - prev.end).total_seconds() // 60)
-                    mv = travel_minutes(prev.zone, e.zone, overrides)
-                    print(f"        ↳ 이동 여유 {gap}분 (추정 이동 {mv}분) — "
-                          f"{'여유 있음' if gap - mv >= 60 else '빠듯함, 교통편 사전 예약'}")
+                    have, move, slack = slack_between(prev, e, buffer_min, overrides)
+                    tag = "여유 있음" if slack >= 45 else \
+                          ("빠듯 — 교통편 사전 확인" if slack >= TIGHT_SLACK else
+                           "매우 빠듯 — 지연 한 번이면 실격")
+                    print(f"        ↳ 이동 가능시간 {have}분 / 추정 이동 {move}분 "
+                          f"/ 남는 여유 {slack}분 — {tag}")
                 prev = e
         left = slots - len(combo)
         if left > 0:
@@ -365,11 +394,12 @@ def write_ics(cands, combo, path, buffer_min):
             "BEGIN:VEVENT",
             f"UID:{e.id}-{fmt(e.start)}@nonsul",
             f"DTSTAMP:{fmt(datetime.now())}",
-            f"DTSTART;TZID=Asia/Seoul:{fmt(e.start - timedelta(minutes=buffer_min))}",
+            f"DTSTART;TZID=Asia/Seoul:{fmt(e.deadline(buffer_min))}",
             f"DTEND;TZID=Asia/Seoul:{fmt(e.end)}",
             f"SUMMARY:{e.univ} {e.dept} 논술",
             f"LOCATION:{e.site or e.zone}",
-            f"DESCRIPTION:{e.track} / 입실 {buffer_min}분 전 도착 기준 / {e.memo}",
+            f"DESCRIPTION:{e.track} / 입실마감 {e.deadline(buffer_min):%H:%M} / "
+            f"시험 {e.start:%H:%M}~{e.end:%H:%M} / {e.memo}",
             "BEGIN:VALARM", "TRIGGER:-P1D", "ACTION:DISPLAY",
             f"DESCRIPTION:내일 {e.univ} 논술", "END:VALARM",
             "END:VEVENT",
@@ -377,7 +407,7 @@ def write_ics(cands, combo, path, buffer_min):
     lines.append("END:VCALENDAR")
     with open(path, "w", encoding="utf-8") as f:
         f.write("\r\n".join(lines))
-    print(f"\n[ICS] {path} — 구글/애플 캘린더에 가져오기 하세요 (입실여유 {buffer_min}분 포함).")
+    print(f"\n[ICS] {path} — 캘린더에 가져오기 하세요. 일정 시작 시각은 '입실 마감'입니다.")
 
 
 def main():
@@ -385,12 +415,14 @@ def main():
     ap.add_argument("csv", nargs="?", help="후보 CSV 경로")
     ap.add_argument("--sample", action="store_true", help="동봉 샘플 CSV로 실행")
     ap.add_argument("--slots", type=int, default=6, help="수시 지원 가능 횟수 (기본 6)")
-    ap.add_argument("--buffer", type=int, default=40, help="입실 여유 분 (기본 40)")
-    ap.add_argument("--duration", type=int, default=120, help="종료시간 미기재 시 시험시간 (기본 120분)")
-    ap.add_argument("--max-per-day", type=int, default=2, help="하루 최대 응시 수 (기본 2, 0=무제한)")
+    ap.add_argument("--buffer", type=int, default=40,
+                    help="`입실` 열이 빈 경우 쓸 기본 입실여유 분 (기본 40)")
+    ap.add_argument("--duration", type=int, default=120, help="`종료` 미기재 시 시험시간 (기본 120분)")
+    ap.add_argument("--max-per-day", type=int, default=3, help="하루 최대 응시 수 (기본 3, 0=무제한)")
     ap.add_argument("--max-per-univ", type=int, default=0, help="같은 대학 최대 지원 수 (0=무제한)")
     ap.add_argument("--top", type=int, default=3, help="추천 조합 개수")
     ap.add_argument("--travel", help="이동시간 override CSV (from,to,minutes)")
+    ap.add_argument("--must", default="", help="반드시 포함할 후보 id (쉼표 구분, 예: C5,C8)")
     ap.add_argument("--allow-miss", action="store_true", help="수능최저 미충족(N) 후보도 포함")
     ap.add_argument("--ics", help="1순위 조합을 .ics 파일로 저장")
     args = ap.parse_args()
@@ -409,28 +441,47 @@ def main():
         sys.exit("읽어들인 후보가 없습니다. 헤더와 날짜 형식(YYYY-MM-DD)을 확인하세요.")
 
     excluded = []
+    must_names = {s.strip() for s in args.must.split(",") if s.strip()}
     if not args.allow_miss:
         keep = []
         for e in cands:
-            if e.min_req == "Y" and e.min_ok == "N":
+            if e.min_req == "Y" and e.min_ok == "N" and e.id not in must_names:
                 excluded.append((e, "수능최저 미충족 예상 (--allow-miss 로 포함 가능)"))
             else:
                 keep.append(e)
         cands = keep
     cands.sort(key=lambda e: e.start)
 
+    must_idx = []
+    for name in must_names:
+        hit = [i for i, e in enumerate(cands) if e.id == name or e.univ == name]
+        if not hit:
+            sys.exit(f"--must 에 준 '{name}' 을(를) 후보에서 찾을 수 없습니다.")
+        must_idx.append(hit[0])
+    must_idx = sorted(set(must_idx))
+    if len(must_idx) > args.slots:
+        sys.exit(f"--must 로 지정한 대학이 {len(must_idx)}개인데 슬롯은 {args.slots}장입니다.")
+
     overrides = load_travel_overrides(args.travel)
     ok, conflicts = build_matrix(cands, args.buffer, overrides)
-    combos = search(cands, ok, args.slots, args.max_per_day or 0,
-                    args.max_per_univ or 0, overrides, args.top)
 
-    print_report(cands, excluded, ok, conflicts, combos, overrides, args.slots, args.buffer)
+    for a, b in itertools.combinations(must_idx, 2):
+        if not ok[a][b]:
+            c = conflicts[tuple(sorted((a, b)))]
+            sys.exit(f"--must 로 지정한 {cands[a].univ} 와 {cands[b].univ} 는 "
+                     f"동시에 볼 수 없습니다: {c.detail}")
+
+    combos = search(cands, ok, args.slots, args.max_per_day or 0,
+                    args.max_per_univ or 0, overrides, args.top, must_idx)
+
+    print_report(cands, excluded, conflicts, combos, overrides,
+                 args.slots, args.buffer, set(must_idx))
 
     if args.ics and combos:
         write_ics(cands, combos[0], args.ics, args.buffer)
 
-    print("\n※ 이동시간은 권역 기반 추정치입니다. 최종 확정 전 실제 교통편으로 검증하고,")
-    print("  시험일·입실시각은 각 대학 최종 모집요강/수험표로 반드시 재확인하세요.")
+    print("\n※ 이동시간은 권역 기반 추정치입니다(--travel 로 실측값 지정 가능).")
+    print("  시험일·입실시각·고사장은 각 대학 최종 모집요강과 수험표로 반드시 재확인하세요.")
 
 
 if __name__ == "__main__":
