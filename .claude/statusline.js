@@ -31,30 +31,61 @@ function readStdin() {
   }
 }
 
+// 성공하면 stdout 문자열, 실패하면 null.
+// 빈 문자열("출력이 없었다")과 null("실행이 실패했다")을 반드시 구분해야 한다 —
+// git status가 타임아웃·버퍼 초과로 죽었을 때 이를 "변경 없음"으로 읽으면
+// 상태 표시가 틀린 방향으로 실패한다.
 function git(args, cwd) {
   try {
     return execFileSync('git', args, {
       cwd,
       encoding: 'utf8',
       timeout: 1000,
+      maxBuffer: 10 * 1024 * 1024, // 기본 1MB로는 변경이 많은 저장소에서 ENOBUFS
       stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
+    });
   } catch {
-    return '';
+    return null;
   }
 }
 
+// `git status --branch`의 첫 줄(`## ` 제거된 상태)에서 브랜치 이름을 뽑는다.
+function branchLabel(header, cwd) {
+  const noCommits = 'No commits yet on ';
+  if (header.startsWith(noCommits)) {
+    return header.slice(noCommits.length).split(/\s/)[0];
+  }
+  if (header === 'HEAD (no branch)' || header === 'HEAD') {
+    const short = git(['rev-parse', '--short', 'HEAD'], cwd);
+    return short ? short.trim() : 'detached';
+  }
+  // "main...origin/main [ahead 1]" → "main"
+  return header.split('...')[0].split(/\s/)[0];
+}
+
+function renderBranch(label, mark) {
+  if (!label) return '';
+  const color = mark === '*' ? C.gold : mark === '?' ? C.red : C.jade;
+  return paint(color, `⎇ ${label}${mark}`);
+}
+
 function gitSegment(cwd) {
-  const branch = git(['rev-parse', '--abbrev-ref', 'HEAD'], cwd);
-  if (!branch) return '';
+  // 브랜치·detached 여부·dirty를 git 호출 한 번으로 모두 얻는다.
+  const status = git(['status', '--porcelain', '--branch', '--untracked-files=no'], cwd);
+  if (status !== null) {
+    const lines = status.split('\n');
+    const header = lines[0] || '';
+    if (header.startsWith('## ')) {
+      const dirty = lines.slice(1).some((line) => line.trim() !== '');
+      return renderBranch(branchLabel(header.slice(3), cwd), dirty ? '*' : '');
+    }
+  }
 
-  // detached HEAD면 짧은 커밋 해시로 표시
-  const label =
-    branch === 'HEAD' ? git(['rev-parse', '--short', 'HEAD'], cwd) || 'detached' : branch;
-
-  const dirty = git(['status', '--porcelain', '--untracked-files=no'], cwd) ? '*' : '';
-  const color = dirty ? C.gold : C.jade;
-  return paint(color, `⎇ ${label}${dirty}`);
+  // 여기까지 왔다면 status가 실패했거나 형식이 예상과 다르다.
+  // 깨끗하다고 단정하지 말고, 브랜치만 보여주면서 변경 여부는 '?'로 남긴다.
+  const head = git(['rev-parse', '--abbrev-ref', 'HEAD'], cwd);
+  if (head === null) return ''; // git 저장소가 아님
+  return renderBranch(branchLabel(head.trim(), cwd), '?');
 }
 
 function dirSegment(currentDir, projectDir) {
