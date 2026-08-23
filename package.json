@@ -1,0 +1,14 @@
+{
+  "name": "danjang",
+  "version": "2.0.0",
+  "description": "단장(丹粧) — 나 대신 입어주는 AI 피팅룸",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.112.1",
+    "cheerio": "^1.2.0"
+  },
+  "type": "commonjs"
+}
