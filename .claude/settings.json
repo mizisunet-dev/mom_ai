@@ -1,0 +1,13 @@
+{
+  "extraKnownMarketplaces": {
+    "forge-market": {
+      "source": {
+        "source": "git",
+        "url": "https://github.com/ggombee/forge-market.git"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "code-forge@forge-market": true
+  }
+}
