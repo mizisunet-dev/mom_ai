@@ -17,7 +17,8 @@
 
 ```
 server.js          정적 서빙 + GET /api/analyze?url=<상품링크>
-lib/fetch-page.js  상품 페이지 fetch (SSRF 방어: dns/net 검사)
+                   SSRF 방어(assertPublicHost — dns/net으로 사설·루프백 IP 차단)
+lib/fetch-page.js  상품 페이지 fetch (브라우저 UA, 타임아웃 12s, 용량 상한 3MB)
 lib/extract.js     휴리스틱 추출 (JSON-LD / OG / 사이즈표 파싱)
 lib/llm-extract.js Claude 폴백 추출 (@anthropic-ai/sdk)
 js/app.js          화면 흐름

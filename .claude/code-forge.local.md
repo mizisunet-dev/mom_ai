@@ -2,7 +2,7 @@
 version: 4.11.0
 plugins:
   smith:
-    enabled: false
+    enabled: true
   whetstone:
     enabled: false
   bellows:
