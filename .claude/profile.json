@@ -1,0 +1,17 @@
+{
+  "installTarget": "local",
+  "projectType": "service",
+  "modules": {
+    "framework": "node-http",
+    "styling": "vanilla-css",
+    "testing": "manual-mock-server"
+  },
+  "project": {
+    "name": "danjang",
+    "dev": "npm start",
+    "build": "(빌드 단계 없음 — 정적 파일 직접 서빙)",
+    "lint": "(린터 미설정)",
+    "test": "node test/mock-shop.js"
+  },
+  "overrides": {}
+}
