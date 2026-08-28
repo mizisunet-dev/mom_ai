@@ -1,5 +1,2 @@
 node_modules/
 .env
-
-# code-forge runtime state (per-session, not shared)
-.claude/state/
